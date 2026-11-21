@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>50音チップ単語作成ツール - リハビリテーション用</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Noto Sans JP -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@500;700;900&display=swap" rel="stylesheet">
+
+  <style>
+    /* リハビリ・タッチ操作向けユニバーサル設定 */
+    * {
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+      touch-action: manipulation;
+    }
+    body {
+      font-family: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #f0f4f8;
+      color: #1e293b;
+      overscroll-behavior: none;
+    }
+
+    /* 3D立体感のある文字チップ */
+    .tile-btn {
+      transition: all 0.08s ease;
+      box-shadow: 0 4px 0 rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.08);
+      position: relative;
+    }
+    .tile-btn:active, .tile-btn.is-pressed {
+      transform: translateY(3px);
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08);
+    }
+
+    /* 解答スロット用タイル */
+    .slot-tile {
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .slot-tile:hover {
+      transform: translateY(-2px);
+    }
+    .slot-tile.dragging {
+      opacity: 0.4;
+      transform: scale(0.95);
+    }
+
+    /* ドラッグ追従用ゴースト要素 */
+    #drag-ghost {
+      pointer-events: none;
+      position: fixed;
+      z-index: 9999;
+      transform: translate(-50%, -50%) scale(1.1);
+      box-shadow: 0 12px 24px rgba(0,0,0,0.25);
+      display: none;
+      opacity: 0.9;
+    }
+
+    /* 解答欄ドロップターゲット視覚ハイライト */
+    .drop-indicator {
+      width: 4px;
+      background-color: #0284c7;
+      border-radius: 2px;
+      animation: pulse-line 1s infinite;
+    }
+    @keyframes pulse-line {
+      0%, 100% { opacity: 0.4; }
+      50% { opacity: 1; }
+    }
+
+    /* カスタムスクロールバー */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+  </style>
+</head>
+<body class="h-screen w-screen flex flex-col overflow-hidden bg-slate-100 text-slate-800">
+
+  <!-- ヘッダーバー -->
+  <header class="bg-white border-b border-slate-200 px-4 py-2.5 flex items-center justify-between shrink-0 shadow-sm">
+    <div class="flex items-center gap-3">
+      <div class="bg-sky-600 text-white p-2 rounded-xl flex items-center justify-center shadow-md">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-xl font-bold tracking-wide text-slate-800 flex items-center gap-2">
+          50音チップ単語作成アプリ
+          <span class="text-xs px-2 py-0.5 bg-sky-100 text-sky-700 font-semibold rounded-full border border-sky-200">リハビリ用</span>
+        </h1>
+        <p class="text-xs text-slate-500 hidden sm:block">文字チップをタップまたはドラッグして、ことばをつくりましょう</p>
+      </div>
+    </div>
+
+    <!-- コントロールボタン群（設定） -->
+    <div class="flex items-center gap-2 sm:gap-3">
+      <!-- 音効切替 -->
+      <button id="btn-sound-toggle" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-sm font-semibold transition active:scale-95 shadow-sm">
+        <svg id="icon-sound-on" class="w-5 h-5 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/>
+        </svg>
+        <svg id="icon-sound-off" class="w-5 h-5 text-slate-400 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"/>
+        </svg>
+        <span class="hidden md:inline">操作音</span>
+      </button>
+
+      <!-- 文字サイズ変更 -->
+      <button id="btn-font-size" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-sm font-semibold transition active:scale-95 shadow-sm">
+        <span class="text-xs font-bold">A</span><span class="text-base font-bold">A</span>
+        <span id="label-font-size" class="hidden md:inline">文字:大</span>
+      </button>
+
+      <!-- 記録パネルトグル（モバイル等用） -->
+      <button id="btn-toggle-history" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-sm font-semibold transition active:scale-95 shadow-sm relative">
+        <svg class="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+        </svg>
+        <span class="hidden md:inline">記録メモ</span>
+        <span id="history-badge" class="absolute -top-1.5 -right-1.5 bg-rose-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center border-2 border-white hidden">0</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- メインコンテンツ領域 -->
+  <div class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+
+    <!-- 左側 / 中央：単語作成エリアと50音ボード -->
+    <main class="flex-1 flex flex-col overflow-hidden p-2 sm:p-4 gap-3">
+      
+      <!-- 1. 単語表示・作成エリア（解答スロット） -->
+      <section class="bg-white rounded-2xl p-3 sm:p-4 shadow-md border-2 border-sky-100 flex flex-col gap-3 shrink-0">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-sky-800 uppercase tracking-wider flex items-center gap-1">
+            <span class="w-2.5 h-2.5 rounded-full bg-sky-500 inline-block"></span>
+            作成した単語（ここに文字が入ります）
+          </span>
+          <span id="word-count-label" class="text-xs font-semibold text-slate-500">0 文字</span>
+        </div>
+
+        <!-- 文字が並ぶドロップターゲットコンテナ -->
+        <div id="word-slot-container" class="min-h-[88px] sm:min-h-[104px] w-full bg-slate-50 rounded-xl border-2 border-dashed border-slate-300 p-2 sm:p-3 flex items-center flex-wrap gap-2 transition-colors duration-200 overflow-x-auto relative">
+          <!-- プレースホルダー（文字がゼロの時に表示） -->
+          <div id="slot-placeholder" class="absolute inset-0 flex items-center justify-center text-slate-400 pointer-events-none text-sm sm:text-base font-medium">
+            下の50音チップを押すか、ここまで引っ張ってください
+          </div>
+          <!-- 動的に文字タイルが挿入される -->
+        </div>
+
+        <!-- 解答欄コントロールボタン -->
+        <div class="flex items-center justify-between gap-2 pt-1 flex-wrap">
+          <div class="flex items-center gap-2">
+            <!-- 音声読み上げボタン -->
+            <button id="btn-speak" class="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm sm:text-base shadow-sm active:translate-y-0.5 transition">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15.536 8.464a5 5 0 010 7.072M18.364 5.636a9 9 0 010 12.728M11 5L6 9H2v6h4l5 4V5z"/>
+              </svg>
+              よみあげる
+            </button>
+            
+            <!-- 記録（決定）ボタン -->
+            <button id="btn-save-word" class="flex items-center gap-1.5 px-3.5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-bold text-sm sm:text-base shadow-sm active:translate-y-0.5 transition">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+              </svg>
+              きろくする
+            </button>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <!-- 1文字消す -->
+            <button id="btn-backspace" class="flex items-center gap-1 px-3 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-sm sm:text-base shadow-sm active:translate-y-0.5 transition">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414-6.414a2 2 0 011.414-.586H19a2 2 0 012 2v12a2 2 0 01-2 2H10.828a2 2 0 01-1.414-.586L3 12z"/>
+              </svg>
+              1文字消す
+            </button>
+            <!-- ぜんぶ消す -->
+            <button id="btn-clear-all" class="flex items-center gap-1 px-3 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-bold text-sm sm:text-base shadow-sm active:translate-y-0.5 transition">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+              </svg>
+              ぜんぶ消す
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. 50音チップボード（一覧グリッド） -->
+      <section class="flex-1 bg-white rounded-2xl p-2.5 sm:p-4 shadow-md border border-slate-200 flex flex-col overflow-hidden">
+        
+        <!-- ボード内スクロールコンテナ -->
+        <div class="flex-1 overflow-y-auto pr-1 space-y-3">
+          
+          <!-- グループA: 清音 (あ〜ん) -->
+          <div>
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+              <h2 class="text-xs font-bold text-slate-600">清音（せいおん）</h2>
+            </div>
+            <!-- 五十音レイアウト (レスポンシブグリッド) -->
+            <div id="grid-seion" class="grid grid-cols-5 sm:grid-cols-10 gap-1.5 sm:gap-2">
+              <!-- JSで動的追加 -->
+            </div>
+          </div>
+
+          <!-- グループB: 濁音・半濁音 (が・ざ・だ・ば・ぱ行) -->
+          <div>
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+              <h2 class="text-xs font-bold text-slate-600">濁音・半濁音（だくおん・はんだくおん）</h2>
+            </div>
+            <div id="grid-dakuon" class="grid grid-cols-5 sm:grid-cols-10 gap-1.5 sm:gap-2">
+              <!-- JSで動的追加 -->
+            </div>
+          </div>
+
+          <!-- グループC: 拗音・促音・小文字・記号 -->
+          <div>
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+              <h2 class="text-xs font-bold text-slate-600">小さい文字・伸ばす音・記号</h2>
+            </div>
+            <div id="grid-komoji" class="grid grid-cols-5 sm:grid-cols-10 gap-1.5 sm:gap-2">
+              <!-- JSで動的追加 -->
+            </div>
+          </div>
+
+        </div>
+      </section>
+    </main>
+
+    <!-- 右側：記録・履歴サイドパネル (デスクトップ時は常時、スマホ時はオーバーレイ) -->
+    <aside id="history-panel" class="w-full md:w-80 bg-white border-l border-slate-200 shadow-xl md:shadow-none flex flex-col absolute md:relative inset-y-0 right-0 z-30 transform translate-x-full md:translate-x-0 transition-transform duration-300 ease-in-out">
+      <!-- 履歴ヘッダー -->
+      <div class="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+        <div class="flex items-center gap-2">
+          <svg class="w-5 h-5 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <h2 class="font-bold text-slate-800">作成した単語の記録</h2>
+        </div>
+        <button id="btn-close-history" class="md:hidden p-1.5 text-slate-400 hover:text-slate-600 rounded-lg">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- 履歴リスト本体 -->
+      <div id="history-list" class="flex-1 overflow-y-auto p-3 space-y-2.5">
+        <!-- 空の状態のメッセージ -->
+        <div id="history-empty" class="text-center py-10 text-slate-400 text-sm">
+          <svg class="w-12 h-12 mx-auto mb-2 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+          </svg>
+          単語を作成して<br>「きろくする」を押すと<br>ここに保存されます
+        </div>
+      </div>
+
+      <!-- 履歴フッター（全削除） -->
+      <div class="p-3 border-t border-slate-200 bg-slate-50 flex justify-between items-center text-xs text-slate-500">
+        <span>※この端末のメモリにのみ保存</span>
+        <button id="btn-clear-history" class="text-rose-600 hover:text-rose-700 font-semibold px-2 py-1 rounded hover:bg-rose-50 transition">
+          履歴を消去
+        </button>
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- ドラッグ中追従用ゴーストエレメント -->
+  <div id="drag-ghost" class="bg-sky-500 text-white font-bold rounded-2xl flex items-center justify-center border-2 border-white shadow-2xl">
+    <span id="drag-ghost-text" class="text-2xl">あ</span>
+  </div>
+
+  <!-- JavaScript ロジック -->
+  <script>
+    // --- データ定義 ---
+    // 清音（伝統的50音順・直感的にわかりやすい10行配列）
+    const SEION_CHARS = [
+      "あ", "い", "う", "え", "お",
+      "か", "き", "く", "け", "こ",
+      "さ", "し", "す", "せ", "そ",
+      "た", "ち", "つ", "て", "と",
+      "な", "に", "ぬ", "ね", "の",
+      "は", "ひ", "ふ", "へ", "ほ",
+      "ま", "み", "む", "め", "も",
+      "や", "ゆ", "よ", "わ", "を",
+      "ら", "り", "る", "れ", "ろ",
+      "ん", " ", " ", " ", " "
+    ].filter(c => c !== " ");
+
+    // 濁音・半濁音
+    const DAKUON_CHARS = [
+      "が", "ぎ", "ぐ", "げ", "ご",
+      "ざ", "じ", "ず", "ぜ", "ぞ",
+      "だ", "ぢ", "づ", "で", "ど",
+      "ば", "び", "ぶ", "べ", "ぼ",
+      "ぱ", "ぴ", "ぷ", "ぺ", "ぽ"
+    ];
+
+    // 小さい文字・記号
+    const KOMOJI_CHARS = [
+      "ぁ", "ぃ", "ぅ", "ぇ", "ぉ",
+      "っ", "ゃ", "ゅ", "ょ", "ゎ",
+      "ー", "〜", "？", "！", "・"
+    ];
+
+    // --- アプリケーションState ---
+    let currentWord = []; // 解答スロットの文字配列 [{ id: uniqueId, char: "あ" }]
+    let savedHistory = []; // 記録済み単語のリスト
+    let soundEnabled = true;
+    let isLargeFont = true; // デフォルトで大きめ
+    let nextId = 1;
+
+    // Web Audio API サウンドジェネレータ
+    let audioCtx = null;
+
+    function playPopSound() {
+      if (!soundEnabled) return;
+      try {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        // ポコンという木の音に近い優しいサイン波＋高域ピッチ
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(520, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(260, audioCtx.currentTime + 0.08);
+
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.08);
+      } catch (e) {
+        console.error("Audio error", e);
+      }
+    }
+
+    function playDeleteSound() {
+      if (!soundEnabled) return;
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(150, audioCtx.currentTime + 0.1);
+
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.1);
+      } catch (e) {}
+    }
+
+    // --- DOM要素リファレンス ---
+    const slotContainer = document.getElementById('word-slot-container');
+    const slotPlaceholder = document.getElementById('slot-placeholder');
+    const wordCountLabel = document.getElementById('word-count-label');
+    const dragGhost = document.getElementById('drag-ghost');
+    const dragGhostText = document.getElementById('drag-ghost-text');
+    const historyPanel = document.getElementById('history-panel');
+    const historyList = document.getElementById('history-list');
+    const historyEmpty = document.getElementById('history-empty');
+    const historyBadge = document.getElementById('history-badge');
+
+    // --- 50音チップグリッドの初期化構築 ---
+    function createTileButton(char, bgStyle, borderStyle, textColor) {
+      const btn = document.createElement('button');
+      btn.className = `tile-btn flex items-center justify-center font-extrabold rounded-xl ${bgStyle} ${borderStyle} ${textColor} border-b-4 select-none touch-none cursor-pointer active:scale-95 transition-transform`;
+      
+      // サイズ調整クラス
+      const sizeClass = isLargeFont 
+        ? 'h-12 text-xl sm:h-14 sm:text-2xl' 
+        : 'h-10 text-lg sm:h-12 sm:text-xl';
+      btn.className += ` ${sizeClass}`;
+
+      btn.innerText = char;
+      btn.setAttribute('data-char', char);
+
+      // ポインターイベントによるタップ＆ドラッグ対応
+      setupBoardTilePointerEvents(btn, char);
+
+      return btn;
+    }
+
+    function renderBoardGrids() {
+      const seionContainer = document.getElementById('grid-seion');
+      const dakuonContainer = document.getElementById('grid-dakuon');
+      const komojiContainer = document.getElementById('grid-komoji');
+
+      seionContainer.innerHTML = '';
+      dakuonContainer.innerHTML = '';
+      komojiContainer.innerHTML = '';
+
+      // 清音チップ（スカイブルー〜ホワイト系）
+      SEION_CHARS.forEach(char => {
+        const btn = createTileButton(
+          char, 
+          'bg-gradient-to-b from-sky-50 to-sky-100 border-sky-300 hover:bg-sky-200', 
+          'border-b-sky-400', 
+          'text-sky-950'
+        );
+        seionContainer.appendChild(btn);
+      });
+
+      // 濁音・半濁音チップ（エメラルドグリーン系）
+      DAKUON_CHARS.forEach(char => {
+        const btn = createTileButton(
+          char, 
+          'bg-gradient-to-b from-emerald-50 to-emerald-100 border-emerald-300 hover:bg-emerald-200', 
+          'border-b-emerald-400', 
+          'text-emerald-950'
+        );
+        dakuonContainer.appendChild(btn);
+      });
+
+      // 小さい文字・記号チップ（アンバー・オレンジ系）
+      KOMOJI_CHARS.forEach(char => {
+        const btn = createTileButton(
+          char, 
+          'bg-gradient-to-b from-amber-50 to-amber-100 border-amber-300 hover:bg-amber-200', 
+          'border-b-amber-400', 
+          'text-amber-950'
+        );
+        komojiContainer.appendChild(btn);
+      });
+    }
+
+    // --- 解答スロットの描画更新 ---
+    function renderWordSlot() {
+      // プレースホルダー表示切替
+      if (currentWord.length === 0) {
+        slotPlaceholder.style.display = 'flex';
+      } else {
+        slotPlaceholder.style.display = 'none';
+      }
+
+      // 既存の要素を一旦クリアして再描画
+      // （プレースホルダー以外の要素を削除）
+      Array.from(slotContainer.children).forEach(child => {
+        if (child !== slotPlaceholder) {
+          slotContainer.removeChild(child);
+        }
+      });
+
+      wordCountLabel.innerText = `${currentWord.length} 文字`;
+
+      // スロットタイルの生成
+      currentWord.forEach((item, index) => {
+        const tile = document.createElement('div');
+        const tileSizeClass = isLargeFont 
+          ? 'w-14 h-14 text-2xl sm:w-16 sm:h-16 sm:text-3xl' 
+          : 'w-11 h-11 text-xl sm:w-12 sm:h-12 sm:text-2xl';
+
+        tile.className = `slot-tile ${tileSizeClass} bg-sky-600 text-white font-black rounded-2xl flex items-center justify-center relative cursor-grab active:cursor-grabbing select-none border-2 border-sky-400 shadow-md group`;
+        tile.setAttribute('data-id', item.id);
+        tile.setAttribute('data-index', index);
+
+        // 文字本体
+        const span = document.createElement('span');
+        span.innerText = item.char;
+        tile.appendChild(span);
+
+        // 個別削除用ホバー/タッチバツボタン
+        const delBtn = document.createElement('button');
+        delBtn.className = "absolute -top-1.5 -right-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold shadow-md transition transform scale-90 sm:scale-100 opacity-90 sm:opacity-0 group-hover:opacity-100";
+        delBtn.innerHTML = "&times;";
+        delBtn.title = "この1文字を消す";
+        delBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          removeCharAtIndex(index);
+        });
+        tile.appendChild(delBtn);
+
+        // 単一タップで個別削除、ドラッグで並べ替え
+        setupSlotTilePointerEvents(tile, index);
+
+        slotContainer.appendChild(tile);
+      });
+    }
+
+    // 文字追加・削除ロジック
+    function appendChar(char) {
+      currentWord.push({ id: nextId++, char: char });
+      playPopSound();
+      renderWordSlot();
+      // スロットの右端へ自動スクロール
+      slotContainer.scrollLeft = slotContainer.scrollWidth;
+    }
+
+    function removeCharAtIndex(index) {
+      if (index >= 0 && index < currentWord.length) {
+        currentWord.splice(index, 1);
+        playDeleteSound();
+        renderWordSlot();
+      }
+    }
+
+    function removeLastChar() {
+      if (currentWord.length > 0) {
+        currentWord.pop();
+        playDeleteSound();
+        renderWordSlot();
+      }
+    }
+
+    function clearAllChars() {
+      if (currentWord.length > 0) {
+        currentWord = [];
+        playDeleteSound();
+        renderWordSlot();
+      }
+    }
+
+    // --- 日本語 音声読み上げ（SpeechSynthesis） ---
+    function speakCurrentWord() {
+      if (currentWord.length === 0) return;
+      const textToSpeak = currentWord.map(item => item.char).join('');
+      
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel(); // 前の再生を停止
+        const utterance = new SpeechSynthesisUtterance(textToSpeak);
+        utterance.lang = 'ja-JP';
+        utterance.rate = 0.85; // 少しゆっくりめで聞き取りやすく
+        utterance.pitch = 1.0;
+        window.speechSynthesis.speak(utterance);
+      } else {
+        alert("お使いのブラウザは音声読み上げに対応していません。");
+      }
+    }
+
+    // --- 履歴記録機能 ---
+    function saveCurrentWordToHistory() {
+      if (currentWord.length === 0) return;
+      const wordText = currentWord.map(item => item.char).join('');
+      
+      const newItem = {
+        id: Date.now(),
+        text: wordText,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+
+      savedHistory.unshift(newItem);
+      playPopSound();
+      renderHistoryList();
+    }
+
+    function renderHistoryList() {
+      historyList.innerHTML = '';
+      
+      if (savedHistory.length === 0) {
+        historyList.appendChild(historyEmpty);
+        historyBadge.classList.add('hidden');
+        return;
+      }
+
+      historyEmpty.remove();
+      historyBadge.innerText = savedHistory.length;
+      historyBadge.classList.remove('hidden');
+
+      savedHistory.forEach((item) => {
+        const card = document.createElement('div');
+        card.className = "p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-2 shadow-sm hover:border-sky-300 transition";
+
+        const textDiv = document.createElement('div');
+        textDiv.className = "flex-1 overflow-hidden";
+        textDiv.innerHTML = `
+          <div class="text-lg font-black text-slate-800 tracking-wide break-all">${item.text}</div>
+          <div class="text-[10px] font-semibold text-slate-400">${item.time}</div>
+        `;
+
+        const actionDiv = document.createElement('div');
+        actionDiv.className = "flex items-center gap-1 shrink-0";
+
+        // 再読み上げ
+        const btnSpeak = document.createElement('button');
+        btnSpeak.className = "p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition";
+        btnSpeak.innerHTML = `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072M11 5L6 9H2v6h4l5 4V5z"/></svg>`;
+        btnSpeak.title = "よみあげる";
+        btnSpeak.onclick = () => {
+          if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(item.text);
+            u.lang = 'ja-JP';
+            u.rate = 0.85;
+            window.speechSynthesis.speak(u);
+          }
+        };
+
+        // 解答欄にセット
+        const btnLoad = document.createElement('button');
+        btnLoad.className = "p-1.5 text-sky-600 hover:bg-sky-50 rounded-lg transition";
+        btnLoad.innerHTML = `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>`;
+        btnLoad.title = "枠に読み込む";
+        btnLoad.onclick = () => {
+          currentWord = item.text.split('').map(c => ({ id: nextId++, char: c }));
+          playPopSound();
+          renderWordSlot();
+        };
+
+        // 削除
+        const btnDel = document.createElement('button');
+        btnDel.className = "p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition";
+        btnDel.innerHTML = `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>`;
+        btnDel.title = "削除";
+        btnDel.onclick = () => {
+          savedHistory = savedHistory.filter(h => h.id !== item.id);
+          playDeleteSound();
+          renderHistoryList();
+        };
+
+        actionDiv.appendChild(btnSpeak);
+        actionDiv.appendChild(btnLoad);
+        actionDiv.appendChild(btnDel);
+
+        card.appendChild(textDiv);
+        card.appendChild(actionDiv);
+        historyList.appendChild(card);
+      });
+    }
+
+
+    // --- ポインターイベント（タップ & ドラッグ＆ドロップ実装） ---
+    let activeDragState = null;
+
+    // 1. ボード上の50音チップからのドラッグ / タップ判定
+    function setupBoardTilePointerEvents(element, char) {
+      let startX = 0, startY = 0;
+      let isDragging = false;
+      let pointerId = null;
+
+      element.addEventListener('pointerdown', (e) => {
+        // マウス左クリック or 指・ペンタッチ
+        if (e.button && e.button !== 0) return;
+        pointerId = e.pointerId;
+        startX = e.clientX;
+        startY = e.clientY;
+        isDragging = false;
+
+        element.classList.add('is-pressed');
+        element.setPointerCapture(pointerId);
+      });
+
+      element.addEventListener('pointermove', (e) => {
+        if (pointerId !== e.pointerId) return;
+        const dist = Math.hypot(e.clientX - startX, e.clientY - startY);
+
+        // 8px以上動かしたらドラッグモード開始
+        if (!isDragging && dist > 8) {
+          isDragging = true;
+          startGhostDrag(char, e.clientX, e.clientY, 'board');
+        }
+
+        if (isDragging && activeDragState) {
+          updateGhostPosition(e.clientX, e.clientY);
+        }
+      });
+
+      element.addEventListener('pointerup', (e) => {
+        if (pointerId !== e.pointerId) return;
+        element.classList.remove('is-pressed');
+        try { element.releasePointerCapture(pointerId); } catch(err){}
+
+        if (isDragging) {
+          endGhostDrag(e.clientX, e.clientY);
+        } else {
+          // 移動距離が短ければ単なるタップとして処理
+          appendChar(char);
+        }
+        pointerId = null;
+        isDragging = false;
+      });
+
+      element.addEventListener('pointercancel', (e) => {
+        element.classList.remove('is-pressed');
+        if (isDragging) endGhostDrag(null, null);
+        pointerId = null;
+        isDragging = false;
+      });
+    }
+
+    // 2. 解答スロット内のタイルドラッグ（並べ替え）
+    function setupSlotTilePointerEvents(element, index) {
+      let startX = 0, startY = 0;
+      let isDragging = false;
+      let pointerId = null;
+      const char = currentWord[index].char;
+
+      element.addEventListener('pointerdown', (e) => {
+        if (e.button && e.button !== 0) return;
+        pointerId = e.pointerId;
+        startX = e.clientX;
+        startY = e.clientY;
+        isDragging = false;
+
+        element.setPointerCapture(pointerId);
+      });
+
+      element.addEventListener('pointermove', (e) => {
+        if (pointerId !== e.pointerId) return;
+        const dist = Math.hypot(e.clientX - startX, e.clientY - startY);
+
+        if (!isDragging && dist > 8) {
+          isDragging = true;
+          element.classList.add('dragging');
+          startGhostDrag(char, e.clientX, e.clientY, 'slot', index);
+        }
+
+        if (isDragging && activeDragState) {
+          updateGhostPosition(e.clientX, e.clientY);
+        }
+      });
+
+      element.addEventListener('pointerup', (e) => {
+        if (pointerId !== e.pointerId) return;
+        element.classList.remove('dragging');
+        try { element.releasePointerCapture(pointerId); } catch(err){}
+
+        if (isDragging) {
+          endGhostDrag(e.clientX, e.clientY);
+        }
+        pointerId = null;
+        isDragging = false;
+      });
+
+      element.addEventListener('pointercancel', (e) => {
+        element.classList.remove('dragging');
+        if (isDragging) endGhostDrag(null, null);
+        pointerId = null;
+        isDragging = false;
+      });
+    }
+
+    // ドラッグ用ゴーストの開始
+    function startGhostDrag(char, x, y, sourceType, fromIndex = -1) {
+      activeDragState = { char, sourceType, fromIndex };
+      dragGhostText.innerText = char;
+      dragGhost.style.width = isLargeFont ? '64px' : '52px';
+      dragGhost.style.height = isLargeFont ? '64px' : '52px';
+      dragGhost.style.display = 'flex';
+      updateGhostPosition(x, y);
+
+      slotContainer.classList.add('bg-sky-50', 'border-sky-400');
+    }
+
+    function updateGhostPosition(x, y) {
+      dragGhost.style.left = `${x}px`;
+      dragGhost.style.top = `${y}px`;
+    }
+
+    // ドラッグ終了時のドロップ判定と位置挿入
+    function endGhostDrag(x, y) {
+      dragGhost.style.display = 'none';
+      slotContainer.classList.remove('bg-sky-50', 'border-sky-400');
+
+      if (!activeDragState || x === null || y === null) {
+        activeDragState = null;
+        return;
+      }
+
+      // ドロップ先が解答スロット領域内か確認
+      const rect = slotContainer.getBoundingClientRect();
+      const isInside = (
+        x >= rect.left - 20 &&
+        x <= rect.right + 20 &&
+        y >= rect.top - 20 &&
+        y <= rect.bottom + 20
+      );
+
+      if (isInside) {
+        // ドロップ位置（挿入インデックス）を計算
+        const targetIndex = calculateInsertIndex(x);
+
+        if (activeDragState.sourceType === 'board') {
+          // 50音ボードから挿入
+          currentWord.splice(targetIndex, 0, { id: nextId++, char: activeDragState.char });
+          playPopSound();
+        } else if (activeDragState.sourceType === 'slot') {
+          // 解答スロット内での並べ替え
+          const fromIdx = activeDragState.fromIndex;
+          if (fromIdx !== -1) {
+            const item = currentWord.splice(fromIdx, 1)[0];
+            // 削除によってインデックスがずれる場合の補正
+            const adjustedIdx = targetIndex > fromIdx ? targetIndex - 1 : targetIndex;
+            currentWord.splice(adjustedIdx, 0, item);
+            playPopSound();
+          }
+        }
+        renderWordSlot();
+      }
+
+      activeDragState = null;
+    }
+
+    // ドロップ座標から、スロット内のどの文字の間かを計算
+    function calculateInsertIndex(clientX) {
+      const tiles = Array.from(slotContainer.querySelectorAll('.slot-tile'));
+      if (tiles.length === 0) return 0;
+
+      for (let i = 0; i < tiles.length; i++) {
+        const box = tiles[i].getBoundingClientRect();
+        const midX = box.left + box.width / 2;
+        if (clientX < midX) {
+          return i;
+        }
+      }
+      return tiles.length;
+    }
+
+    // --- イベントリスナー設定 ---
+    document.getElementById('btn-speak').addEventListener('click', speakCurrentWord);
+    document.getElementById('btn-save-word').addEventListener('click', saveCurrentWordToHistory);
+    document.getElementById('btn-backspace').addEventListener('click', removeLastChar);
+    document.getElementById('btn-clear-all').addEventListener('click', clearAllChars);
+
+    // 音声効果トグル
+    document.getElementById('btn-sound-toggle').addEventListener('click', () => {
+      soundEnabled = !soundEnabled;
+      document.getElementById('icon-sound-on').classList.toggle('hidden', !soundEnabled);
+      document.getElementById('icon-sound-off').classList.toggle('hidden', soundEnabled);
+    });
+
+    // 文字サイズ切替ボタン
+    document.getElementById('btn-font-size').addEventListener('click', () => {
+      isLargeFont = !isLargeFont;
+      document.getElementById('label-font-size').innerText = isLargeFont ? '文字:大' : '文字:標準';
+      renderBoardGrids();
+      renderWordSlot();
+    });
+
+    // 履歴パネルのトグル表示 (モバイル・タブレット)
+    const btnToggleHistory = document.getElementById('btn-toggle-history');
+    const btnCloseHistory = document.getElementById('btn-close-history');
+
+    function toggleHistoryPanel() {
+      historyPanel.classList.toggle('translate-x-full');
+    }
+    btnToggleHistory.addEventListener('click', toggleHistoryPanel);
+    btnCloseHistory.addEventListener('click', toggleHistoryPanel);
+
+    // 履歴クリア
+    document.getElementById('btn-clear-history').addEventListener('click', () => {
+      if (savedHistory.length === 0) return;
+      savedHistory = [];
+      playDeleteSound();
+      renderHistoryList();
+    });
+
+    // 初期起動時のレンダリング
+    window.onload = () => {
+      renderBoardGrids();
+      renderWordSlot();
+      renderHistoryList();
+    };
+
+  </script>
+</body>
+</html>
